@@ -18,7 +18,9 @@ FROM python:3.12-slim AS server
 RUN pip install --no-cache-dir \
     duckdb>=1.1.0 \
     fastapi>=0.115.0 \
-    uvicorn>=0.30.0
+    uvicorn>=0.30.0 \
+    pandas \
+    numpy
 
 WORKDIR /app
 
