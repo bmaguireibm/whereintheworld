@@ -18,7 +18,7 @@ A low-resource, cloud-optimized geolocator for city, town, administrative area, 
 ### Docker
 
 ```bash
-docker run -p 8080:8080 ghcr.io/anomalyco/whereintheworld:latest
+docker run -p 8080:8080 ghcr.io/bmaguireibm/whereintheworld:latest
 ```
 
 The image includes a pre-built GeoParquet with ~1M place records (Overture Maps 2026-04-15.0 release).
