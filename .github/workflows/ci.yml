@@ -17,6 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
       - run: uv pip install --system ruff
       - run: ruff check .
 
@@ -27,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
 
       - name: Install dependencies
         run: uv pip install --system -r requirements.txt
