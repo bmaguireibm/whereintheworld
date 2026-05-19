@@ -4,11 +4,13 @@ A low-resource, cloud-optimized geolocator for city, town, administrative area, 
 
 **Features:**
 - Auto-complete forward geocoding for 1M+ places worldwide
+- Specify town + country/region (`"Dublin, Ireland"`, `"Austin, Texas"`)
+- Optional lat/lng hint for proximity-biased results
 - Support for Latin, CJK, Cyrillic, and Arabic name queries
 - Transliterated search (e.g. "tokyo" finds `東京都`)
 - Reverse geocoding from coordinates
 - Subtype and country filtering
-- ~30-60ms query latency, < 100 MB memory footprint
+- ~30-50ms query latency, < 100 MB memory footprint
 - Runs locally or reads directly from S3
 
 ## Quick Start
@@ -16,7 +18,7 @@ A low-resource, cloud-optimized geolocator for city, town, administrative area, 
 ### Docker
 
 ```bash
-docker run -p 8080:8080 ghcr.io/<user>/whereintheworld:latest
+docker run -p 8080:8080 ghcr.io/anomalyco/whereintheworld:latest
 ```
 
 The image includes a pre-built GeoParquet with ~1M place records (Overture Maps 2026-04-15.0 release).
@@ -55,20 +57,25 @@ Sets up DuckDB's httpfs extension to query the parquet in-place without download
 
 ### `GET /v1/autocomplete`
 
-Forward geocode with prefix matching and auto-complete.
+Forward geocode with prefix matching and auto-complete. Supports comma-separated `Town, Country` or `Town, Region` queries (e.g. `"Dublin, Ireland"`, `"Austin, Texas"`) and optional lat/lng proximity hints.
 
 | Parameter | Type   | Default | Description                           |
 |-----------|--------|---------|---------------------------------------|
-| `q`       | string | _(req)_ | Search prefix (1-100 chars)           |
+| `q`       | string | _(req)_ | Search prefix (1-100 chars). Use `Town, Country` or `Town, Region` to scope results. |
 | `limit`   | int    | 10      | Max results (1-50)                    |
 | `subtype` | string | —       | Filter: `country`, `region`, `locality`, `county` |
 | `country` | string | —       | ISO 3166-1 alpha-2 code (e.g. `US`)   |
+| `lat`     | float  | —       | Latitude hint for proximity sorting (pair with `lng`) |
+| `lng`     | float  | —       | Longitude hint for proximity sorting (pair with `lat`) |
 
 ```bash
 curl "http://localhost:8080/v1/autocomplete?q=San%20F&limit=5"
 curl "http://localhost:8080/v1/autocomplete?q=東京&limit=5"
 curl "http://localhost:8080/v1/autocomplete?q=tokyo&limit=5"
 curl "http://localhost:8080/v1/autocomplete?q=springfield&country=US&limit=5"
+curl "http://localhost:8080/v1/autocomplete?q=Dublin,%20Ireland&limit=5"
+curl "http://localhost:8080/v1/autocomplete?q=Austin,%20Texas&limit=5"
+curl "http://localhost:8080/v1/autocomplete?q=San&limit=10&lat=37.77&lng=-122.42"
 ```
 
 ```json
@@ -125,7 +132,7 @@ Overture Maps S3 ──▶ DuckDB pipeline ──▶ Optimized GeoParquet (70MB)
                               /v1/autocomplete  /v1/search  /v1/reverse
 ```
 
-The parquet is sorted by a lowercased `sort_name` column, enabling DuckDB to use row-group min/max statistics to skip ~90% of row groups on prefix queries. A two-step search strategy uses the fast `sort_name` path first, then falls back to `name_en` for transliterated queries.
+The parquet is sorted by a lowercased `sort_name` column, enabling DuckDB to use row-group min/max statistics to skip ~90% of row groups on prefix queries. A two-step search strategy uses the fast `sort_name` path first, then falls back to `name_en` for transliterated queries. Comma-separated queries (`"Dublin, Ireland"`) are parsed into a place prefix and scope filter that matches against country names, country codes, region names (via subquery), and region codes. Optional `lat`/`lng` parameters re-sort results by Euclidean distance for location-biased results.
 
 ## Configuration
 

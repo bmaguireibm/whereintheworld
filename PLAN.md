@@ -262,16 +262,21 @@ FastAPI (uvicorn, single worker)
 
 #### `GET /v1/autocomplete`
 
-Forward geocode with prefix matching.
+Forward geocode with prefix matching. Supports comma-separated "town, country" queries (e.g., `?q=Dublin, Ireland`) and optional lat/lng proximity hints for location-biased results.
 
 | Parameter | Type   | Default | Description                        |
 |-----------|--------|---------|------------------------------------|
-| `q`       | String | (req)   | Search prefix (min 1 char)         |
+| `q`       | String | (req)   | Search prefix (min 1 char). Use `Town, Country` format to filter by country name or ISO code. |
 | `limit`   | Int    | 10      | Max results (1-50)                 |
 | `subtype` | String | (all)   | Filter: country,region,locality... |
 | `country` | String | (all)   | Filter by ISO country code         |
+| `lat`     | Float  | (none)  | Latitude hint for proximity sorting (must pair with `lng`) |
+| `lng`     | Float  | (none)  | Longitude hint for proximity sorting (must pair with `lat`) |
 
-Example: `GET /v1/autocomplete?q=Lon&limit=5`
+Examples:
+- `GET /v1/autocomplete?q=Lon&limit=5` — prefix match, sorted by subtype priority
+- `GET /v1/autocomplete?q=Dublin, Ireland&limit=5` — prefix match on "Dublin" filtered to Ireland
+- `GET /v1/autocomplete?q=San&limit=10&lat=37.77&lng=-122.42` — prefix match on "San" sorted by proximity to SF
 
 Response:
 ```json

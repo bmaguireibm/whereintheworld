@@ -18,8 +18,10 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import duckdb
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # ── Configuration ──────────────────────────────────────────────
@@ -140,57 +142,134 @@ SUBTYPE_PRIORITY = """
 """
 
 
-def search_fast(prefix: str, limit: int, subtype: Optional[str] = None,
-                country: Optional[str] = None) -> list[dict]:
-    subtype_clause = f"AND subtype = '{subtype}'" if subtype else ""
-    country_clause = f"AND country = '{country}'" if country else ""
-    sql = f"""
-        SELECT id, name, display_name, subtype, country, country_name,
-               region, latitude, longitude
-        FROM geo
-        WHERE sort_name LIKE '{prefix}%'
-          {subtype_clause}
-          {country_clause}
-        ORDER BY {SUBTYPE_PRIORITY}
-        LIMIT {limit}
-    """
+def parse_query(q: str) -> tuple[str, str | None]:
+    if "," in q:
+        parts = q.split(",", 1)
+        place_part = parts[0].strip()
+        country_part = parts[1].strip()
+        if country_part and place_part:
+            return place_part, country_part
+    return q, None
+
+
+def _region_filter_clause(cf: str) -> str:
+    return f"""(
+        LOWER(country_name) LIKE '%{cf}%'
+        OR LOWER(country) = '{cf}'
+        OR region IN (
+            SELECT DISTINCT region FROM geo
+            WHERE sort_name LIKE '{cf}%' AND subtype = 'region'
+        )
+        OR LOWER(region) LIKE '%{cf}%'
+    )"""
+
+
+def _where_clauses(prefix: str, subtype: str | None = None,
+                   country: str | None = None,
+                   scope_filter: str | None = None) -> list[str]:
+    clauses = [f"sort_name LIKE '{prefix}%'"]
+    if subtype:
+        clauses.append(f"subtype = '{subtype}'")
+    if country:
+        clauses.append(f"country = '{country}'")
+    if scope_filter:
+        cf = scope_filter.replace("'", "''")
+        clauses.append(_region_filter_clause(cf))
+    return clauses
+
+
+def _search(sql: str) -> list[dict]:
     return db.execute(sql).fetchdf().to_dict(orient="records")
+
+
+def search_fast(prefix: str, limit: int, subtype: Optional[str] = None,
+                country: Optional[str] = None,
+                scope_filter: Optional[str] = None,
+                lat: Optional[float] = None,
+                lng: Optional[float] = None) -> list[dict]:
+    clauses = _where_clauses(prefix, subtype, country, scope_filter)
+    where = " AND ".join(clauses)
+
+    if lat is not None and lng is not None:
+        sql = f"""
+            SELECT id, name, display_name, subtype, country, country_name,
+                   region, latitude, longitude,
+                   ((latitude - {lat})*(latitude - {lat}) +
+                    (longitude - {lng})*(longitude - {lng})) as dist
+            FROM geo
+            WHERE {where}
+            ORDER BY dist
+            LIMIT {limit}
+        """
+    else:
+        sql = f"""
+            SELECT id, name, display_name, subtype, country, country_name,
+                   region, latitude, longitude
+            FROM geo
+            WHERE {where}
+            ORDER BY {SUBTYPE_PRIORITY}
+            LIMIT {limit}
+        """
+    return _search(sql)
 
 
 def search_en_fallback(prefix: str, limit: int, exclude_ids: set,
                        subtype: Optional[str] = None,
-                       country: Optional[str] = None) -> list[dict]:
-    subtype_clause = f"AND subtype = '{subtype}'" if subtype else ""
-    country_clause = f"AND country = '{country}'" if country else ""
-    exclude_clause = ""
+                       country: Optional[str] = None,
+                       scope_filter: Optional[str] = None,
+                       lat: Optional[float] = None,
+                       lng: Optional[float] = None) -> list[dict]:
+    clauses = [f"LOWER(name_en) LIKE '{prefix}%'"]
+    if subtype:
+        clauses.append(f"subtype = '{subtype}'")
+    if country:
+        clauses.append(f"country = '{country}'")
+    if scope_filter:
+        cf = scope_filter.replace("'", "''")
+        clauses.append(_region_filter_clause(cf))
     if exclude_ids:
         ids = "', '".join(exclude_ids)
-        exclude_clause = f"AND id NOT IN ('{ids}')"
+        clauses.append(f"id NOT IN ('{ids}')")
+    where = " AND ".join(clauses)
 
-    sql = f"""
-        SELECT id, name, display_name, subtype, country, country_name,
-               region, latitude, longitude
-        FROM geo
-        WHERE LOWER(name_en) LIKE '{prefix}%'
-          {exclude_clause}
-          {subtype_clause}
-          {country_clause}
-        ORDER BY {SUBTYPE_PRIORITY}
-        LIMIT {limit}
-    """
-    return db.execute(sql).fetchdf().to_dict(orient="records")
+    if lat is not None and lng is not None:
+        sql = f"""
+            SELECT id, name, display_name, subtype, country, country_name,
+                   region, latitude, longitude,
+                   ((latitude - {lat})*(latitude - {lat}) +
+                    (longitude - {lng})*(longitude - {lng})) as dist
+            FROM geo
+            WHERE {where}
+            ORDER BY dist
+            LIMIT {limit}
+        """
+    else:
+        sql = f"""
+            SELECT id, name, display_name, subtype, country, country_name,
+                   region, latitude, longitude
+            FROM geo
+            WHERE {where}
+            ORDER BY {SUBTYPE_PRIORITY}
+            LIMIT {limit}
+        """
+    return _search(sql)
 
 
 def search(prefix: str, limit: int, subtype: Optional[str] = None,
-           country: Optional[str] = None) -> tuple[list[dict], float]:
+           country: Optional[str] = None,
+           scope_filter: Optional[str] = None,
+           lat: Optional[float] = None,
+           lng: Optional[float] = None) -> tuple[list[dict], float]:
     t0 = time.perf_counter()
-    primary = search_fast(prefix, limit, subtype, country)
+    primary = search_fast(prefix, limit, subtype, country,
+                          scope_filter, lat, lng)
     results = primary
 
     if len(results) < limit and len(results) < FALLBACK_THRESHOLD:
         exclude = {r["id"] for r in results}
         remaining = limit - len(results)
-        fallback = search_en_fallback(prefix, remaining, exclude, subtype, country)
+        fallback = search_en_fallback(prefix, remaining, exclude,
+                                      subtype, country, scope_filter, lat, lng)
         results.extend(fallback)
 
     elapsed = (time.perf_counter() - t0) * 1000
@@ -222,7 +301,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir, html=True), name="static")
+
 # ── Endpoints ───────────────────────────────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    index_path = os.path.join(static_dir, "index.html")
+    if os.path.isfile(index_path):
+        with open(index_path) as f:
+            return f.read()
+    return HTMLResponse(content="<h1>Not found</h1>", status_code=404)
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
@@ -236,12 +327,25 @@ async def autocomplete(
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     subtype: Optional[str] = Query(None),
     country: Optional[str] = Query(None, min_length=2, max_length=2),
+    lat: Optional[float] = Query(None, ge=-90, le=90),
+    lng: Optional[float] = Query(None, ge=-180, le=180),
 ):
-    prefix = q.lower().replace("'", "''")
-    results, took_ms = search(prefix, limit, subtype, country)
+    raw_q = q
+    place_part, scope_filter = parse_query(q)
+
+    prefix = place_part.lower().replace("'", "''")
+    sf = scope_filter.lower() if scope_filter else None
+
+    if lat is not None and lng is None or lat is None and lng is not None:
+        raise HTTPException(400, "lat and lng must be provided together")
+
+    results, took_ms = search(
+        prefix, limit, subtype, country,
+        scope_filter=sf, lat=lat, lng=lng,
+    )
     return AutocompleteResponse(
         results=[_row_to_result(r) for r in results],
-        query=q,
+        query=raw_q,
         took_ms=round(took_ms, 1),
     )
 

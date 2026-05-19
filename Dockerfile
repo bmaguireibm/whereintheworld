@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir \
 WORKDIR /app
 
 COPY server.py .
+COPY static/ ./static/
 COPY --from=builder /build/data/geolocator_v2.parquet ./data/geolocator_v2.parquet
 
 ENV PARQUET_PATH=/app/data/geolocator_v2.parquet
