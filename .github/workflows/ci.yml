@@ -25,22 +25,24 @@ jobs:
     needs: [lint]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Install dependencies
-        run: uv pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Generate test fixture
-        run: uv run python scripts/generate_test_fixture.py
+        run: python scripts/generate_test_fixture.py
 
       - name: Start server
         run: |
-          PARQUET_PATH=data/test_geolocator.parquet PORT=5100 uv run python server.py &
+          PARQUET_PATH=data/test_geolocator.parquet PORT=5100 python server.py &
           sleep 3
           curl -sS --retry 5 --retry-delay 1 http://localhost:5100/health
 
       - name: Run integration tests
-        run: V2_TEST_PORT=5100 uv run python tests/test_server.py
+        run: V2_TEST_PORT=5100 python tests/test_server.py
 
   # ── Build & Push Docker Image ───────────────────────────────
   build:
