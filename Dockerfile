@@ -6,6 +6,8 @@ RUN pip install --no-cache-dir duckdb>=1.1.0 pyarrow pandas numpy
 WORKDIR /build
 COPY scripts/02_build_parquet.py ./build_parquet.py
 
+ENV OUTPUT_PATH=/build/data/geolocator_v2.parquet
+
 # Generate geoparquet from Overture Maps S3
 # (public bucket, no credentials needed)
 RUN python build_parquet.py

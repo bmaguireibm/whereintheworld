@@ -29,7 +29,7 @@ import time
 import os
 
 # ── Configuration ──────────────────────────────────────────────
-OUTPUT_PATH = os.environ.get("OUTPUT_PATH", "data/geolocator.parquet")
+OUTPUT_PATH = os.environ.get("OUTPUT_PATH", "data/geolocator_v2.parquet")
 TEMP_DIR = os.environ.get("TEMP_DIR", "data/tmp")
 ROW_GROUP_SIZE = int(os.environ.get("ROW_GROUP_SIZE", "200000"))
 Overture_RELEASE = os.environ.get("Overture_RELEASE", "")  # empty = latest from STAC
