@@ -195,7 +195,7 @@ for prefix, lat, lng in hints:
             print(f"           → {row['display_name']} dist={row['dist']:.4f}")
 
 print("\n--- Proximity + country filter (combined) ---")
-sql = f"""
+sql = """
     SELECT name, display_name, subtype, country, latitude, longitude,
            ((latitude - 53.3498)*(latitude - 53.3498) +
             (longitude - -6.2603)*(longitude - -6.2603)) as dist
